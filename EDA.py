@@ -1,164 +1,112 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
 
-# Streamlit Config
-st.set_page_config(page_title="E-Commerce Data Analysis", layout="wide")
-sns.set_style("whitegrid")
+# -----------------------------
+# Streamlit App
+# -----------------------------
+st.set_page_config(page_title="📦 E-commerce Data Analysis", layout="wide")
 
 # Title
-st.title("📊 E-Commerce Data Analysis App")
+st.title("📊 Comprehensive E-commerce Data Analysis App")
+
+# Intro
+st.markdown("""
+Welcome to the **E-commerce Data Analysis App** 🎉  
+Here, we’ll explore sales patterns, customer behaviors, and product performance.  
+Upload your dataset and let’s begin the analysis!
+""")
 
 # File uploader
-uploaded_file = st.file_uploader("Upload your E-Commerce CSV file", type=["csv"])
+uploaded_file = st.file_uploader("📂 Upload a CSV file", type=["csv"])
 
 if uploaded_file is not None:
     # Load dataset
-    df = pd.read_csv(uploaded_file, encoding="ISO-8859-1")
+    df = pd.read_csv(uploaded_file)
 
-    # Rename columns for consistency
-    df.rename(columns={
-        'InvoiceNo': 'invoice_num',
-        'StockCode': 'stock_code',
-        'Description': 'description',
-        'Quantity': 'quantity',
-        'InvoiceDate': 'invoice_date',
-        'UnitPrice': 'unit_price',
-        'CustomerID': 'cust_id',
-        'Country': 'country'
-    }, inplace=True)
+    # Standardize column names
+    df.columns = df.columns.str.strip().str.lower()
 
-    # Convert date column
-    df['invoice_date'] = pd.to_datetime(df['invoice_date'], errors='coerce')
+    # Convert invoice_date if exists
+    if "invoicedate" in df.columns:
+        df["invoicedate"] = pd.to_datetime(df["invoicedate"], errors="coerce")
 
-    # Standardize description
-    df['description'] = df['description'].astype(str).str.lower()
+    # Show dataset preview
+    st.subheader("👀 Dataset Preview")
+    st.write(df.head())
 
-    # Drop missing values
-    df_new = df.dropna()
-    df_new['cust_id'] = df_new['cust_id'].astype('int64')
+    # Show basic info
+    st.subheader("📌 Summary Statistics")
+    st.write(df.describe(include="all"))
 
-    # Add new features
-    df_new = df_new[df_new.quantity > 0]
-    df_new['amount_spent'] = df_new['quantity'] * df_new['unit_price']
-    df_new = df_new[['invoice_num', 'invoice_date', 'stock_code', 'description',
-                     'quantity', 'unit_price', 'amount_spent', 'cust_id', 'country']]
-
-    df_new.insert(2, 'year_month', df_new['invoice_date'].dt.strftime('%Y%m'))
-    df_new.insert(3, 'month', df_new['invoice_date'].dt.month)
-    df_new.insert(4, 'day', df_new['invoice_date'].dt.dayofweek + 1)
-    df_new.insert(5, 'hour', df_new['invoice_date'].dt.hour)
-
-    # -------------------------
-    # Dataset Preview
-    # -------------------------
-    st.subheader("📂 Dataset Preview")
-    st.write(df_new.head())
-
-    # -------------------------
-    # Missing Values
-    # -------------------------
-    st.subheader("❓ Missing Values")
+    # Missing values
+    st.subheader("🔎 Missing Values")
     st.write(df.isnull().sum())
 
-    # -------------------------
-    # Summary Statistics
-    # -------------------------
-    st.subheader("📈 Summary Statistics")
-    st.write(df_new.describe())
+    # ================================================================
+    # SALES ANALYSIS
+    # ================================================================
+    st.markdown("## 📈 Sales Trends Over Time")
 
-    # -------------------------
-    # Customer Orders Analysis
-    # -------------------------
-    st.subheader("🛒 Number of Orders per Customer")
-    orders = df_new.groupby(['cust_id'])['invoice_num'].count().reset_index()
+    if "invoicedate" in df.columns and "quantity" in df.columns and "unitprice" in df.columns:
+        df["sales"] = df["quantity"] * df["unitprice"]
+        sales_trend = df.groupby(df["invoicedate"].dt.date)["sales"].sum().reset_index()
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(orders['cust_id'], orders['invoice_num'], color="blue")
-    ax.set_title("Orders by Customer")
-    ax.set_xlabel("Customer ID")
-    ax.set_ylabel("Number of Orders")
-    st.pyplot(fig)
+        fig = px.line(sales_trend, x="invoicedate", y="sales", title="Total Sales Over Time")
+        st.plotly_chart(fig, use_container_width=True)
 
-    st.write("Top 5 Customers by Number of Orders:")
-    st.write(orders.sort_values(by='invoice_num', ascending=False).head())
+    # ================================================================
+    # TOP PRODUCTS
+    # ================================================================
+    st.markdown("## 🏆 Top Selling Products")
 
-    # -------------------------
-    # Money Spent per Customer
-    # -------------------------
-    st.subheader("💰 Money Spent per Customer")
-    money_spent = df_new.groupby('cust_id')['amount_spent'].sum().reset_index()
+    if "description" in df.columns and "quantity" in df.columns:
+        top_products = df.groupby("description")["quantity"].sum().reset_index().sort_values(by="quantity", ascending=False).head(10)
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(money_spent['cust_id'], money_spent['amount_spent'], color="green")
-    ax.set_title("Money Spent by Customer")
-    ax.set_xlabel("Customer ID")
-    ax.set_ylabel("Amount Spent")
-    st.pyplot(fig)
+        fig = px.bar(top_products, x="description", y="quantity", title="Top 10 Products by Quantity Sold")
+        st.plotly_chart(fig, use_container_width=True)
 
-    st.write("Top 5 Customers by Money Spent:")
-    st.write(money_spent.sort_values(by='amount_spent', ascending=False).head())
+    # ================================================================
+    # REVENUE BY COUNTRY
+    # ================================================================
+    st.markdown("## 🌍 Revenue by Country")
 
-    # -------------------------
-    # Orders by Month
-    # -------------------------
-    st.subheader("📅 Orders by Month")
-    monthly_orders = df_new.groupby('year_month')['invoice_num'].nunique()
+    if "country" in df.columns:
+        revenue_country = df.groupby("country")["sales"].sum().reset_index().sort_values(by="sales", ascending=False).head(10)
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    monthly_orders.plot(kind='bar', color="orange", ax=ax)
-    ax.set_title("Number of Orders per Month")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Orders")
-    st.pyplot(fig)
+        fig = px.bar(revenue_country, x="country", y="sales", title="Top 10 Countries by Revenue")
+        st.plotly_chart(fig, use_container_width=True)
 
-    # -------------------------
-    # Orders by Day of Week
-    # -------------------------
-    st.subheader("📆 Orders by Day of Week")
-    day_orders = df_new.groupby('day')['invoice_num'].nunique()
+    # ================================================================
+    # CUSTOMER ANALYSIS
+    # ================================================================
+    st.markdown("## 👥 Customer Analysis")
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    day_orders.plot(kind='bar', color="purple", ax=ax)
-    ax.set_title("Orders by Day of Week (Mon=1 ... Sun=7)")
-    ax.set_xlabel("Day of Week")
-    ax.set_ylabel("Orders")
-    st.pyplot(fig)
+    if "customerid" in df.columns:
+        customer_revenue = df.groupby("customerid")["sales"].sum().reset_index().sort_values(by="sales", ascending=False).head(10)
 
-    # -------------------------
-    # Orders by Hour
-    # -------------------------
-    st.subheader("⏰ Orders by Hour of Day")
-    hour_orders = df_new.groupby('hour')['invoice_num'].nunique()
+        fig = px.bar(customer_revenue, x="customerid", y="sales", title="Top 10 Customers by Revenue")
+        st.plotly_chart(fig, use_container_width=True)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    hour_orders.plot(kind='bar', color="red", ax=ax)
-    ax.set_title("Orders by Hour of Day")
-    ax.set_xlabel("Hour")
-    ax.set_ylabel("Orders")
-    st.pyplot(fig)
+    # ================================================================
+    # COLUMN-WISE INTERACTIVE ANALYSIS
+    # ================================================================
+    st.markdown("## 🔍 Interactive Column-wise Analysis")
 
-    # -------------------------
-    # Country-wise Orders
-    # -------------------------
-    st.subheader("🌍 Orders by Country")
-    country_orders = df_new.groupby('country')['invoice_num'].count().sort_values()
+    column = st.selectbox("Select a column for analysis", df.columns)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    country_orders.plot(kind='barh', color="skyblue", ax=ax)
-    ax.set_title("Orders by Country")
-    ax.set_xlabel("Orders")
-    st.pyplot(fig)
+    if pd.api.types.is_numeric_dtype(df[column]):
+        st.write(f"Summary of **{column}**:")
+        st.write(df[column].describe())
 
-    # -------------------------
-    # Country-wise Spending
-    # -------------------------
-    st.subheader("💵 Spending by Country")
-    country_spent = df_new.groupby('country')['amount_spent'].sum().sort_values()
+        fig, ax = plt.subplots()
+        df[column].hist(ax=ax, bins=20)
+        ax.set_title(f"Histogram of {column}")
+        st.pyplot(fig)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    country_spent.plot(kind='barh', color="darkgreen", ax=ax)
-    ax.set_title("Total Spending by Country")
-    ax.set_xlabel("Money Spent")
-    st.pyplot(fig)
+    else:
+        st.write(f"Value counts of **{column}**:")
+        st.write(df[column].value_counts().head(20))
+        fig = px.bar(df[column].value_counts().head(20), title=f"Top 20 Categories in {column}")
+        st.plotly_chart(fig, use_container_width=True)
