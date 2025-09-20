@@ -2,18 +2,22 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import warnings
 
-# Streamlit page config
-st.set_page_config(page_title="E-Commerce Analysis Dashboard", layout="wide")
+# Streamlit Config
+st.set_page_config(page_title="E-Commerce Data Analysis", layout="wide")
+sns.set_style("whitegrid")
 
-# Ignore warnings
-warnings.filterwarnings('ignore')
-sns.set_style('whitegrid')
+# Title
+st.title("📊 E-Commerce Data Analysis App")
 
-# Load dataset
-def load_data():
-    df = pd.read_csv("ecommerce_dataset.csv", encoding="ISO-8859-1")
+# File uploader
+uploaded_file = st.file_uploader("Upload your E-Commerce CSV file", type=["csv"])
+
+if uploaded_file is not None:
+    # Load dataset
+    df = pd.read_csv(uploaded_file, encoding="ISO-8859-1")
+
+    # Rename columns for consistency
     df.rename(columns={
         'InvoiceNo': 'invoice_num',
         'StockCode': 'stock_code',
@@ -25,123 +29,136 @@ def load_data():
         'Country': 'country'
     }, inplace=True)
 
+    # Convert date column
     df['invoice_date'] = pd.to_datetime(df['invoice_date'], errors='coerce')
+
+    # Standardize description
     df['description'] = df['description'].astype(str).str.lower()
-    df = df.dropna()
-    df['cust_id'] = df['cust_id'].astype('int64')
-    df = df[df['quantity'] > 0]
-    df['amount_spent'] = df['quantity'] * df['unit_price']
 
-    # Add time features
-    df['year_month'] = df['invoice_date'].dt.to_period('M')
-    df['month'] = df['invoice_date'].dt.month
-    df['day'] = df['invoice_date'].dt.dayofweek + 1
-    df['hour'] = df['invoice_date'].dt.hour
-    
-    return df
+    # Drop missing values
+    df_new = df.dropna()
+    df_new['cust_id'] = df_new['cust_id'].astype('int64')
 
-# Load data
-df = load_data()
+    # Add new features
+    df_new = df_new[df_new.quantity > 0]
+    df_new['amount_spent'] = df_new['quantity'] * df_new['unit_price']
+    df_new = df_new[['invoice_num', 'invoice_date', 'stock_code', 'description',
+                     'quantity', 'unit_price', 'amount_spent', 'cust_id', 'country']]
 
-# Sidebar
-st.sidebar.header("Filters")
-country_filter = st.sidebar.multiselect("Select Country", options=df['country'].unique(), default=df['country'].unique())
-df = df[df['country'].isin(country_filter)]
+    df_new.insert(2, 'year_month', df_new['invoice_date'].dt.strftime('%Y%m'))
+    df_new.insert(3, 'month', df_new['invoice_date'].dt.month)
+    df_new.insert(4, 'day', df_new['invoice_date'].dt.dayofweek + 1)
+    df_new.insert(5, 'hour', df_new['invoice_date'].dt.hour)
 
-st.title("📊 E-Commerce Dataset Analysis Dashboard")
+    # -------------------------
+    # Dataset Preview
+    # -------------------------
+    st.subheader("📂 Dataset Preview")
+    st.write(df_new.head())
 
-# Show data sample
-if st.checkbox("Show Raw Data"):
-    st.dataframe(df.head(20))
+    # -------------------------
+    # Missing Values
+    # -------------------------
+    st.subheader("❓ Missing Values")
+    st.write(df.isnull().sum())
 
-# KPIs
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Orders", df['invoice_num'].nunique())
-col2.metric("Unique Customers", df['cust_id'].nunique())
-col3.metric("Total Revenue ($)", round(df['amount_spent'].sum(), 2))
-col4.metric("Unique Countries", df['country'].nunique())
+    # -------------------------
+    # Summary Statistics
+    # -------------------------
+    st.subheader("📈 Summary Statistics")
+    st.write(df_new.describe())
 
-# Orders per customer
-st.subheader("Number of Orders by Customers")
-orders = df.groupby('cust_id')['invoice_num'].count()
-fig, ax = plt.subplots(figsize=(12,6))
-orders.plot(ax=ax)
-ax.set_xlabel("Customer ID")
-ax.set_ylabel("Number of Orders")
-st.pyplot(fig)
+    # -------------------------
+    # Customer Orders Analysis
+    # -------------------------
+    st.subheader("🛒 Number of Orders per Customer")
+    orders = df_new.groupby(['cust_id'])['invoice_num'].count().reset_index()
 
-# Money spent per customer
-st.subheader("Money Spent by Customers")
-money_spent = df.groupby('cust_id')['amount_spent'].sum()
-fig, ax = plt.subplots(figsize=(12,6))
-money_spent.plot(ax=ax)
-ax.set_xlabel("Customer ID")
-ax.set_ylabel("Money Spent ($)")
-st.pyplot(fig)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(orders['cust_id'], orders['invoice_num'], color="blue")
+    ax.set_title("Orders by Customer")
+    ax.set_xlabel("Customer ID")
+    ax.set_ylabel("Number of Orders")
+    st.pyplot(fig)
 
-# Monthly orders
-st.subheader("Monthly Orders")
-monthly_orders = df.groupby('year_month')['invoice_num'].nunique()
-fig, ax = plt.subplots(figsize=(12,6))
-monthly_orders.plot(kind='bar', ax=ax, color=sns.color_palette()[0])
-ax.set_xlabel("Month")
-ax.set_ylabel("Number of Orders")
-st.pyplot(fig)
+    st.write("Top 5 Customers by Number of Orders:")
+    st.write(orders.sort_values(by='invoice_num', ascending=False).head())
 
-# Orders by day of week
-st.subheader("Orders by Day of Week")
-daily_orders = df.groupby('day')['invoice_num'].nunique()
-fig, ax = plt.subplots(figsize=(12,6))
-daily_orders.plot(kind='bar', ax=ax, color=sns.color_palette()[0])
-ax.set_xlabel("Day of Week (1=Mon ... 7=Sun)")
-ax.set_ylabel("Orders")
-st.pyplot(fig)
+    # -------------------------
+    # Money Spent per Customer
+    # -------------------------
+    st.subheader("💰 Money Spent per Customer")
+    money_spent = df_new.groupby('cust_id')['amount_spent'].sum().reset_index()
 
-# Orders by hour
-st.subheader("Orders by Hour")
-hourly_orders = df.groupby('hour')['invoice_num'].nunique()
-fig, ax = plt.subplots(figsize=(12,6))
-hourly_orders.plot(kind='bar', ax=ax, color=sns.color_palette()[0])
-ax.set_xlabel("Hour of Day")
-ax.set_ylabel("Orders")
-st.pyplot(fig)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(money_spent['cust_id'], money_spent['amount_spent'], color="green")
+    ax.set_title("Money Spent by Customer")
+    ax.set_xlabel("Customer ID")
+    ax.set_ylabel("Amount Spent")
+    st.pyplot(fig)
 
-# Unit price distribution
-st.subheader("Unit Price Distribution")
-fig, ax = plt.subplots(figsize=(12,6))
-sns.boxplot(x=df['unit_price'], ax=ax)
-st.pyplot(fig)
+    st.write("Top 5 Customers by Money Spent:")
+    st.write(money_spent.sort_values(by='amount_spent', ascending=False).head())
 
-# Free items
-st.subheader("Free Items Frequency")
-df_free = df[df['unit_price'] == 0]
-free_items = df_free.groupby('year_month')['invoice_num'].nunique()
-fig, ax = plt.subplots(figsize=(12,6))
-free_items.plot(kind='bar', ax=ax, color=sns.color_palette()[0])
-ax.set_xlabel("Month")
-ax.set_ylabel("Free Items Count")
-st.pyplot(fig)
+    # -------------------------
+    # Orders by Month
+    # -------------------------
+    st.subheader("📅 Orders by Month")
+    monthly_orders = df_new.groupby('year_month')['invoice_num'].nunique()
 
-# Orders by Country (with UK)
-st.subheader("Orders by Country (with UK)")
-orders_country = df.groupby('country')['invoice_num'].nunique().sort_values()
-fig, ax = plt.subplots(figsize=(12,6))
-orders_country.plot(kind='barh', ax=ax, color=sns.color_palette()[0])
-st.pyplot(fig)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    monthly_orders.plot(kind='bar', color="orange", ax=ax)
+    ax.set_title("Number of Orders per Month")
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Orders")
+    st.pyplot(fig)
 
-# Orders by Country (without UK)
-st.subheader("Orders by Country (without UK)")
-if 'United Kingdom' in orders_country.index:
-    orders_country_noUK = orders_country.drop('United Kingdom')
-else:
-    orders_country_noUK = orders_country
-fig, ax = plt.subplots(figsize=(12,6))
-orders_country_noUK.plot(kind='barh', ax=ax, color=sns.color_palette()[0])
-st.pyplot(fig)
+    # -------------------------
+    # Orders by Day of Week
+    # -------------------------
+    st.subheader("📆 Orders by Day of Week")
+    day_orders = df_new.groupby('day')['invoice_num'].nunique()
 
-# Revenue by Country
-st.subheader("Revenue by Country")
-revenue_country = df.groupby('country')['amount_spent'].sum().sort_values()
-fig, ax = plt.subplots(figsize=(12,6))
-revenue_country.plot(kind='barh', ax=ax, color=sns.color_palette()[0])
-st.pyplot(fig)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    day_orders.plot(kind='bar', color="purple", ax=ax)
+    ax.set_title("Orders by Day of Week (Mon=1 ... Sun=7)")
+    ax.set_xlabel("Day of Week")
+    ax.set_ylabel("Orders")
+    st.pyplot(fig)
+
+    # -------------------------
+    # Orders by Hour
+    # -------------------------
+    st.subheader("⏰ Orders by Hour of Day")
+    hour_orders = df_new.groupby('hour')['invoice_num'].nunique()
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    hour_orders.plot(kind='bar', color="red", ax=ax)
+    ax.set_title("Orders by Hour of Day")
+    ax.set_xlabel("Hour")
+    ax.set_ylabel("Orders")
+    st.pyplot(fig)
+
+    # -------------------------
+    # Country-wise Orders
+    # -------------------------
+    st.subheader("🌍 Orders by Country")
+    country_orders = df_new.groupby('country')['invoice_num'].count().sort_values()
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    country_orders.plot(kind='barh', color="skyblue", ax=ax)
+    ax.set_title("Orders by Country")
+    ax.set_xlabel("Orders")
+    st.pyplot(fig)
+
+    # -------------------------
+    # Country-wise Spending
+    # -------------------------
+    st.subheader("💵 Spending by Country")
+    country_spent = df_new.groupby('country')['amount_spent'].sum().sort_values()
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    country_spent.plot(kind='barh', color="darkgreen", ax=ax)
+    ax.set_title("Total Spending by Country")
+    ax.set_xlabel("Money Spent")
+    st.pyplot(fig)
